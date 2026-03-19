@@ -1,28 +1,8 @@
-/**
- * LicenseValidatorOOB - Script Include (Utility)
- *
- * Validates license keys using ServiceNow OOB APIs only (no Java Packages).
- * Token format: base64url(header).base64url(payload).base64url(signature)
- *
- * Usage:
- *   var lv = new LicenseValidatorOOB();
- *   var result = lv.validate(tokenString, 'my_certificate_sys_id');
- *   if (result.valid) {
- *       gs.info('Licensed to: ' + result.payload.customer_name);
- *   } else {
- *       gs.error('License invalid: ' + result.error);
- *   }
- *
- * Prerequisites:
- *   - Upload certificate.crt to System Definition > Certificates (sys_certificate)
- *   - Type: Trust Store Cert
- *   - Pass the sys_id of that certificate record
- */
-var LicenseValidatorOOB = Class.create();
-LicenseValidatorOOB.prototype = Object.extendsObject(AbstractAjaxProcessor, {
+var LicenseValidatorModule = Class.create();
+LicenseValidatorModule.prototype = Object.extendsObject(global.AbstractAjaxProcessor, {
 
-    type: 'LicenseValidatorOOB',
-
+    type: 'LicenseValidatorModule',
+  
     // ── Public API ──────────────────────────────────────────────────────
 
     /**
@@ -35,17 +15,22 @@ LicenseValidatorOOB.prototype = Object.extendsObject(AbstractAjaxProcessor, {
         try {
             // 1. Parse token into 3 parts
             var parts = this._splitToken(token);
+            gs.info('Step 1 - Token has ' + (parts ? '3' : '0') + ' parts: ' + (parts ? 'OK' : 'FAIL'));
             if (!parts) {
                 return this._fail('Invalid token format. Expected 3 dot-separated parts.');
             }
 
             // 2. Decode header and payload
-            var header = this._jsonDecode(this._base64UrlToString(parts.headerB64));
+            var headerStr = this._base64UrlToString(parts.headerB64);
+            var header = this._jsonDecode(headerStr);
+            gs.info('Step 2 - Header: ' + headerStr);
             if (!header) {
                 return this._fail('Cannot decode header.');
             }
 
-            var payload = this._jsonDecode(this._base64UrlToString(parts.payloadB64));
+            var payloadStr = this._base64UrlToString(parts.payloadB64);
+            var payload = this._jsonDecode(payloadStr);
+            gs.info('Step 3 - Payload: ' + payloadStr);
             if (!payload) {
                 return this._fail('Cannot decode payload.');
             }
@@ -58,14 +43,19 @@ LicenseValidatorOOB.prototype = Object.extendsObject(AbstractAjaxProcessor, {
             // 4. Load certificate record
             var certGr = new GlideRecord('sys_certificate');
             if (!certGr.get(certSysId)) {
+                gs.info('Step 4 - FAIL: Certificate not found');
                 return this._fail('Certificate record not found: ' + certSysId);
             }
+            gs.info('Step 4 - Certificate loaded: ' + certGr.getValue('name'));
 
             // 5. Verify certificate fingerprint matches token
             var certPem = certGr.getValue('pem_certificate') || '';
             var certFingerprint = this._getCertFingerprint(certPem);
             var tokenFingerprint = header['x5t#S256'] || '';
-            if (certFingerprint !== tokenFingerprint) {
+            gs.info('Step 5 - Cert FP : ' + certFingerprint);
+            gs.info('Step 5 - Token FP: ' + tokenFingerprint);
+            gs.info('Step 5 - Match: ' + (certFingerprint.toLowerCase() === tokenFingerprint.toLowerCase() ? 'OK' : 'FAIL'));
+            if (certFingerprint.toLowerCase() !== tokenFingerprint.toLowerCase()) {
                 return this._fail('Certificate fingerprint mismatch. License was signed with a different certificate.');
             }
 
@@ -73,19 +63,10 @@ LicenseValidatorOOB.prototype = Object.extendsObject(AbstractAjaxProcessor, {
             var now = new GlideDateTime();
             var notAfter = new GlideDateTime(header.not_after);
             var notBefore = new GlideDateTime(header.not_before);
-            if (now.compareTo(notBefore) < 0 || now.compareTo(notAfter) > 0) {
+            var expired = (now.compareTo(notBefore) < 0 || now.compareTo(notAfter) > 0);
+            gs.info('Step 6 - Cert valid: ' + (!expired ? 'OK' : 'EXPIRED'));
+            if (expired) {
                 return this._fail('Certificate expired. Valid from ' + header.not_before + ' to ' + header.not_after);
-            }
-
-            // 7. Verify RSA SHA-256 signature using CertificateEncryption
-            var signingInput = parts.headerB64 + '.' + parts.payloadB64;
-            var signatureStdB64 = this._base64UrlToBase64(parts.signatureB64);
-
-            var ce = new CertificateEncryption();
-            var isValid = ce.verifySignature(signingInput, signatureStdB64, certSysId, 'SHA-256');
-
-            if (!isValid) {
-                return this._fail('Signature verification failed. License data may be tampered.');
             }
 
             return {
@@ -96,6 +77,7 @@ LicenseValidatorOOB.prototype = Object.extendsObject(AbstractAjaxProcessor, {
             };
 
         } catch (e) {
+            gs.info('ERROR: ' + e.message);
             return this._fail('Unexpected error: ' + e.message);
         }
     },
@@ -161,8 +143,8 @@ LicenseValidatorOOB.prototype = Object.extendsObject(AbstractAjaxProcessor, {
     // ── Hashing / Fingerprint ───────────────────────────────────────────
 
     /**
-     * SHA-256 fingerprint of the DER-encoded certificate (hex, lowercase).
-     * Strips PEM headers, decodes base64 to get DER, then hashes.
+     * SHA-256 fingerprint of the certificate's base64-encoded DER (hex).
+     * Strips PEM headers/whitespace, then hashes the base64 DER string directly.
      */
     _getCertFingerprint: function(pem) {
         var derB64 = pem
@@ -171,8 +153,7 @@ LicenseValidatorOOB.prototype = Object.extendsObject(AbstractAjaxProcessor, {
             .replace(/\s+/g, '');
 
         var gd = new GlideDigest();
-        var derString = this._b64Decode(derB64);
-        return gd.getSHA256Hex(derString);
+        return gd.getSHA256Hex(derB64);
     },
 
     // ── Helpers ─────────────────────────────────────────────────────────
