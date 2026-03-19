@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(openssl x509:*)",
+      "Bash(.venv/Scripts/python verify_license.py)",
+      "WebSearch",
+      "WebFetch(domain:www.servicenow.com)",
+      "WebFetch(domain:docs.servicenow.com)",
+      "WebFetch(domain:developer.servicenow.com)",
+      "WebFetch(domain:servicenowguru.com)"
+    ]
+  }
+}

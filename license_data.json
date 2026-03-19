@@ -1,0 +1,14 @@
+{
+    "instance_id": "dev337223",
+    "customer_name": "SOORI",
+    "licensed_modules": [
+        "incident_management_pro",
+        "change_management_pro",
+        "asset_discovery"
+    ],
+    "max_users": 100,
+    "issued_at": "2026-03-10T00:00:00Z",
+    "expires_at": "2027-03-10T00:00:00Z",
+    "license_version": "1.0",
+    "token_id": "A1B2C3D4E5F6G7H8"
+}
